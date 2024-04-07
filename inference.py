@@ -246,8 +246,6 @@ def main():
             incomplete, reference = torch.split(img_batch, 3, dim=1)
             time_start = time.time()
             pred, low_res = model(mel_batch, img_batch, reference)
-            duration = time.time() - time_start
-            print("inference time-consuming:", duration)
             pred = torch.clamp(pred, 0, 1)
 
             if args.up_face in ['sad', 'angry', 'surprise']:
@@ -263,6 +261,9 @@ def main():
                 instance.feed_batch(test_batch)
                 instance.forward()
                 cur_gen_faces = torch.nn.functional.interpolate(instance.fake_img / 2. + 0.5, size=(384, 384), mode='bilinear')
+
+            duration = time.time() - time_start
+            print("inference time-consuming:", duration)
 
             if args.without_rl1 is not False:
                 incomplete, reference = torch.split(img_batch, 3, dim=1)
