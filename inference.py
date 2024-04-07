@@ -96,11 +96,11 @@ def main():
 
     # get the landmark according to the detected face.
     if not os.path.isfile('temp/'+base_name+'_landmarks.txt') or args.re_preprocess:
-        print('[Step 1] Landmarks Extraction in Video.')
+        print('[Step 1] Landmarks Extraction in Video.', get_now())
         kp_extractor = KeypointExtractor()
         lm = kp_extractor.extract_keypoint(frames_pil, './temp/'+base_name+'_landmarks.txt')
     else:
-        print('[Step 1] Using saved landmarks.')
+        print('[Step 1] Using saved landmarks.', get_now())
         lm = np.loadtxt('temp/'+base_name+'_landmarks.txt').astype(np.float32)
         lm = lm.reshape([len(full_frames), -1, 2])
        
@@ -159,6 +159,7 @@ def main():
         print('using expression center')
         expression = torch.tensor(loadmat('checkpoints/expression.mat')['expression_center'])[0]
 
+    print("[Step 3]Start", get_now())
     if not os.path.isfile('temp/'+base_name+'_stablized.npy') or args.re_preprocess:
         imgs = []
         for idx in tqdm(range(len(frames_pil)), desc="[Step 3] Stabilize the expression In Video:"):
@@ -182,8 +183,11 @@ def main():
     else:
         print('[Step 3] Using saved stabilized video.')
         imgs = np.load('temp/'+base_name+'_stablized.npy')
-    torch.cuda.empty_cache()
 
+    print("[Step 3]Finished", get_now())
+
+    print("Start resolve wav file", get_now())
+    torch.cuda.empty_cache()
     if not args.audio.endswith('.wav'):
         command = 'ffmpeg -loglevel error -y -i {} -strict -2 {}'.format(args.audio, 'temp/{}/temp.wav'.format(args.tmp_dir))
         subprocess.call(command, shell=True)
@@ -202,11 +206,17 @@ def main():
         mel_chunks.append(mel[:, start_idx : start_idx + mel_step_size])
         i += 1
 
+    print("Finished resolve wav file", get_now())
+
+    print("[Step 4]Start", get_now())
     print("[Step 4] Load audio; Length of mel chunks: {}".format(len(mel_chunks)))
     imgs = imgs[:len(mel_chunks)]
     full_frames = full_frames[:len(mel_chunks)]  
     lm = lm[:len(mel_chunks)]
-    
+
+    print("[Step 4]Finished", get_now())
+
+    print("[Step 5]Start", get_now())
     imgs_enhanced = []
     for idx in tqdm(range(len(imgs)), desc='[Step 5] Reference Enhancement'):
         img = imgs[idx]
@@ -216,12 +226,15 @@ def main():
 
     frame_h, frame_w = full_frames[0].shape[:-1]
     out = cv2.VideoWriter('temp/{}/result.mp4'.format(args.tmp_dir), cv2.VideoWriter_fourcc(*'mp4v'), fps, (frame_w, frame_h))
-    
+
+    print("[Step 5]Finished", get_now())
+
     if args.up_face != 'original':
         instance = GANimationModel()
         instance.initialize()
         instance.setup()
 
+    print("[Step 6]Start", get_now())
     kp_extractor = KeypointExtractor()
     for i, (img_batch, mel_batch, frames, coords, img_original, f_frames) in enumerate(tqdm(gen, desc='[Step 6] Lip Synthesis:', total=int(np.ceil(float(len(mel_chunks)) / args.LNet_batch_size)))):
         img_batch = torch.FloatTensor(np.transpose(img_batch, (0, 3, 1, 2))).to(device)
@@ -279,12 +292,15 @@ def main():
             pp, orig_faces, enhanced_faces = enhancer.process(pp, xf, bbox=c, face_enhance=False, possion_blending=True)
             out.write(pp)
     out.release()
+
+    print("[Step 6]Finished", get_now())
     
     if not os.path.isdir(os.path.dirname(args.outfile)):
         os.makedirs(os.path.dirname(args.outfile), exist_ok=True)
     command = 'ffmpeg -loglevel error -y -i {} -i {} -strict -2 -q:v 1 {}'.format(args.audio, 'temp/{}/result.mp4'.format(args.tmp_dir), args.outfile)
     subprocess.call(command, shell=platform.system() != 'Windows')
     print('outfile:', args.outfile)
+    print("All Finished", get_now())
 
 
 # frames:256x256, full_frames: original size
