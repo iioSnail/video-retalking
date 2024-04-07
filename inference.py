@@ -103,7 +103,7 @@ def main():
         print('[Step 1] Using saved landmarks.', get_now())
         lm = np.loadtxt('temp/'+base_name+'_landmarks.txt').astype(np.float32)
         lm = lm.reshape([len(full_frames), -1, 2])
-       
+
     if not os.path.isfile('temp/'+base_name+'_coeffs.npy') or args.exp_img is not None or args.re_preprocess:
         video_coeffs = []
         for idx in tqdm(range(len(frames_pil)), desc="[Step 2] 3DMM Extraction In Video:"):
@@ -118,7 +118,7 @@ def main():
 
             trans_params, im_idx, lm_idx, _ = align_img(frame, lm_idx, lm3d_std)
             trans_params = np.array([float(item) for item in np.hsplit(trans_params, 5)]).astype(np.float32)
-            im_idx_tensor = torch.tensor(np.array(im_idx)/255., dtype=torch.float32).permute(2, 0, 1).to(device).unsqueeze(0) 
+            im_idx_tensor = torch.tensor(np.array(im_idx)/255., dtype=torch.float32).permute(2, 0, 1).to(device).unsqueeze(0)
             with torch.no_grad():
                 coeffs = split_coeff(net_recon(im_idx_tensor))
 
@@ -171,13 +171,13 @@ def main():
                 semantic_source_numpy = semantic_npy[idx:idx+1]
             ratio = find_crop_norm_ratio(semantic_source_numpy, semantic_npy)
             coeff = transform_semantic(semantic_npy, idx, ratio).unsqueeze(0).to(device)
-        
+
             # hacking the new expression
-            coeff[:, :64, :] = expression[None, :64, None].to(device) 
+            coeff[:, :64, :] = expression[None, :64, None].to(device)
             with torch.no_grad():
                 output = D_Net(source_img, coeff)
             img_stablized = np.uint8((output['fake_image'].squeeze(0).permute(1,2,0).cpu().clamp_(-1, 1).numpy() + 1 )/2. * 255)
-            imgs.append(cv2.cvtColor(img_stablized,cv2.COLOR_RGB2BGR)) 
+            imgs.append(cv2.cvtColor(img_stablized,cv2.COLOR_RGB2BGR))
         np.save('temp/'+base_name+'_stablized.npy',imgs)
         del D_Net
     else:
@@ -211,7 +211,7 @@ def main():
     print("[Step 4]Start", get_now())
     print("[Step 4] Load audio; Length of mel chunks: {}".format(len(mel_chunks)))
     imgs = imgs[:len(mel_chunks)]
-    full_frames = full_frames[:len(mel_chunks)]  
+    full_frames = full_frames[:len(mel_chunks)]
     lm = lm[:len(mel_chunks)]
 
     print("[Step 4]Finished", get_now())
@@ -229,6 +229,7 @@ def main():
 
     print("[Step 5]Finished", get_now())
 
+    print("args.up_face:", args.up_face)
     if args.up_face != 'original':
         instance = GANimationModel()
         instance.initialize()
@@ -239,10 +240,10 @@ def main():
     for i, (img_batch, mel_batch, frames, coords, img_original, f_frames) in enumerate(tqdm(gen, desc='[Step 6] Lip Synthesis:', total=int(np.ceil(float(len(mel_chunks)) / args.LNet_batch_size)))):
         img_batch = torch.FloatTensor(np.transpose(img_batch, (0, 3, 1, 2))).to(device)
         mel_batch = torch.FloatTensor(np.transpose(mel_batch, (0, 3, 1, 2))).to(device)
-        img_original = torch.FloatTensor(np.transpose(img_original, (0, 3, 1, 2))).to(device)/255. # BGR -> RGB
-        
+        img_original = torch.FloatTensor(np.transpose(img_original, (0, 3, 1, 2))).to(device) / 255. # BGR -> RGB
+
         with torch.no_grad():
-            incomplete, reference = torch.split(img_batch, 3, dim=1) 
+            incomplete, reference = torch.split(img_batch, 3, dim=1)
             pred, low_res = model(mel_batch, img_batch, reference)
             pred = torch.clamp(pred, 0, 1)
 
@@ -250,31 +251,31 @@ def main():
                 tar_aus = exp_aus_dict[args.up_face]
             else:
                 pass
-            
+
             if args.up_face == 'original':
                 cur_gen_faces = img_original
             else:
-                test_batch = {'src_img': torch.nn.functional.interpolate((img_original * 2 - 1), size=(128, 128), mode='bilinear'), 
+                test_batch = {'src_img': torch.nn.functional.interpolate((img_original * 2 - 1), size=(128, 128), mode='bilinear'),
                               'tar_aus': tar_aus.repeat(len(incomplete), 1)}
                 instance.feed_batch(test_batch)
                 instance.forward()
                 cur_gen_faces = torch.nn.functional.interpolate(instance.fake_img / 2. + 0.5, size=(384, 384), mode='bilinear')
-                
+
             if args.without_rl1 is not False:
                 incomplete, reference = torch.split(img_batch, 3, dim=1)
-                mask = torch.where(incomplete==0, torch.ones_like(incomplete), torch.zeros_like(incomplete)) 
-                pred = pred * mask + cur_gen_faces * (1 - mask) 
-        
+                mask = torch.where(incomplete==0, torch.ones_like(incomplete), torch.zeros_like(incomplete))
+                pred = pred * mask + cur_gen_faces * (1 - mask)
+
         pred = pred.cpu().numpy().transpose(0, 2, 3, 1) * 255.
 
         torch.cuda.empty_cache()
         for p, f, xf, c in zip(pred, frames, f_frames, coords):
             y1, y2, x1, x2 = c
             p = cv2.resize(p.astype(np.uint8), (x2 - x1, y2 - y1))
-            
-            ff = xf.copy() 
+
+            ff = xf.copy()
             ff[y1:y2, x1:x2] = p
-            
+
             # month region enhancement by GFPGAN
             cropped_faces, restored_faces, restored_img = restorer.enhance(
                 ff, has_aligned=False, only_center_face=True, paste_back=True)
@@ -294,7 +295,7 @@ def main():
     out.release()
 
     print("[Step 6]Finished", get_now())
-    
+
     if not os.path.isdir(os.path.dirname(args.outfile)):
         os.makedirs(os.path.dirname(args.outfile), exist_ok=True)
     command = 'ffmpeg -loglevel error -y -i {} -i {} -strict -2 -q:v 1 {}'.format(args.audio, 'temp/{}/result.mp4'.format(args.tmp_dir), args.outfile)
@@ -308,7 +309,7 @@ def datagen(frames, mels, full_frames, frames_pil, cox):
     img_batch, mel_batch, frame_batch, coords_batch, ref_batch, full_frame_batch = [], [], [], [], [], []
     base_name = args.face.split('/')[-1]
     refs = []
-    image_size = 256 
+    image_size = 256
 
     # original frames
     kp_extractor = KeypointExtractor()
@@ -342,7 +343,7 @@ def datagen(frames, mels, full_frames, frames_pil, cox):
         oface = cv2.resize(oface, (args.img_size, args.img_size))
 
         img_batch.append(oface)
-        ref_batch.append(face) 
+        ref_batch.append(face)
         mel_batch.append(m)
         coords_batch.append(coords)
         frame_batch.append(frame_to_save)
