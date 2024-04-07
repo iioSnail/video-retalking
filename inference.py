@@ -31,7 +31,7 @@ warnings.filterwarnings("ignore")
 args = options()
 
 def get_now():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
 def main():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -238,15 +238,19 @@ def main():
 
     print("[Step 6]Start", get_now())
     for i, (img_batch, mel_batch, frames, coords, img_original, f_frames) in enumerate(tqdm(gen, desc='[Step 6] Lip Synthesis:', total=int(np.ceil(float(len(mel_chunks)) / args.LNet_batch_size)))):
+        print("[Step 6] 1 ", get_now())
         img_batch = torch.FloatTensor(np.transpose(img_batch, (0, 3, 1, 2))).to(device)
         mel_batch = torch.FloatTensor(np.transpose(mel_batch, (0, 3, 1, 2))).to(device)
         img_original = torch.FloatTensor(np.transpose(img_original, (0, 3, 1, 2))).to(device) / 255. # BGR -> RGB
 
+        print("[Step 6] 2 ", get_now())
+
         with torch.no_grad():
             incomplete, reference = torch.split(img_batch, 3, dim=1)
-            time_start = time.time()
             pred, low_res = model(mel_batch, img_batch, reference)
             pred = torch.clamp(pred, 0, 1)
+
+            print("[Step 6] 3 ", get_now())
 
             if args.up_face in ['sad', 'angry', 'surprise']:
                 tar_aus = exp_aus_dict[args.up_face]
@@ -262,20 +266,25 @@ def main():
                 instance.forward()
                 cur_gen_faces = torch.nn.functional.interpolate(instance.fake_img / 2. + 0.5, size=(384, 384), mode='bilinear')
 
-            duration = time.time() - time_start
-            print("inference time-consuming:", duration)
+            print("[Step 6] 4 ", get_now())
 
             if args.without_rl1 is not False:
                 incomplete, reference = torch.split(img_batch, 3, dim=1)
                 mask = torch.where(incomplete==0, torch.ones_like(incomplete), torch.zeros_like(incomplete))
                 pred = pred * mask + cur_gen_faces * (1 - mask)
 
-        pred = pred.cpu().numpy().transpose(0, 2, 3, 1) * 255.
+            print("[Step 6] 5 ", get_now())
 
+        pred = pred.cpu().numpy().transpose(0, 2, 3, 1) * 255.
         torch.cuda.empty_cache()
+
+        print("[Step 6] 6 ", get_now())
         for p, f, xf, c in zip(pred, frames, f_frames, coords):
+            print("[Step 6] 6.1 ", get_now())
             y1, y2, x1, x2 = c
             p = cv2.resize(p.astype(np.uint8), (x2 - x1, y2 - y1))
+
+            print("[Step 6] 6.2 ", get_now())
 
             ff = xf.copy()
             ff[y1:y2, x1:x2] = p
@@ -285,17 +294,28 @@ def main():
                 ff, has_aligned=False, only_center_face=True, paste_back=True)
                 # 0,   1,   2,   3,   4,   5,   6,   7,   8,  9, 10,  11,  12,
             mm = [0,   0,   0,   0,   0,   0,   0,   0,   0,  0, 255, 255, 255, 0, 0, 0, 0, 0, 0]
+
+            print("[Step 6] 6.3 ", get_now())
+
             mouse_mask = np.zeros_like(restored_img)
             tmp_mask = enhancer.faceparser.process(restored_img[y1:y2, x1:x2], mm)[0]
             mouse_mask[y1:y2, x1:x2]= cv2.resize(tmp_mask, (x2 - x1, y2 - y1))[:, :, np.newaxis] / 255.
+
+            print("[Step 6] 6.4 ", get_now())
 
             height, width = ff.shape[:2]
             restored_img, ff, full_mask = [cv2.resize(x, (512, 512)) for x in (restored_img, ff, np.float32(mouse_mask))]
             img = Laplacian_Pyramid_Blending_with_mask(restored_img, ff, full_mask[:, :, 0], 10)
             pp = np.uint8(cv2.resize(np.clip(img, 0 ,255), (width, height)))
 
+            print("[Step 6] 6.5 ", get_now())
+
             pp, orig_faces, enhanced_faces = enhancer.process(pp, xf, bbox=c, face_enhance=False, possion_blending=True)
             out.write(pp)
+
+            print("[Step 6] 6.6 ", get_now())
+
+        print("[Step 6] 7 ", get_now())
     out.release()
 
     print("[Step 6]Finished", get_now())
