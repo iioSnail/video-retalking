@@ -3,7 +3,6 @@ import cv2, os, sys, subprocess, platform, torch
 from tqdm import tqdm
 from PIL import Image
 from scipy.io import loadmat
-from datetime import datetime
 
 sys.path.insert(0, 'third_part')
 sys.path.insert(0, 'third_part/GPEN')
@@ -29,32 +28,17 @@ warnings.filterwarnings("ignore")
 
 args = options()
 
-def get_now():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-def main():
+def main():    
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print('[Info] Using {} for inference.'.format(device))
     os.makedirs(os.path.join('temp', args.tmp_dir), exist_ok=True)
-    base_name = args.face.split('/')[-1]
 
-    print("load model start:", get_now())
     enhancer = FaceEnhancement(base_dir='checkpoints', size=512, model='GPEN-BFR-512', use_sr=False, \
                                sr_model='rrdb_realesrnet_psnr', channel_multiplier=2, narrow=1, device=device)
     restorer = GFPGANer(model_path='checkpoints/GFPGANv1.3.pth', upscale=1, arch='clean', \
                         channel_multiplier=2, bg_upsampler=None)
 
-    if not os.path.isfile('temp/'+base_name+'_coeffs.npy') or args.exp_img is not None or args.re_preprocess:
-        net_recon = load_face3d_net(args.face3d_net_path, device)
-        lm3d_std = load_lm3d('checkpoints/BFM')
-
-    if args.exp_img is not None and ('.png' in args.exp_img or '.jpg' in args.exp_img):
-        lm3d_std = load_lm3d('third_part/face3d/BFM')
-
-    # load DNet, model(LNet and ENet)
-    D_Net, model = load_model(args, device)
-    print("load model finished:", get_now())
-
+    base_name = args.face.split('/')[-1]
     if os.path.isfile(args.face) and args.face.split('.')[1] in ['jpg', 'png', 'jpeg']:
         args.static = True
     if not os.path.isfile(args.face):
@@ -66,7 +50,6 @@ def main():
         video_stream = cv2.VideoCapture(args.face)
         fps = video_stream.get(cv2.CAP_PROP_FPS)
 
-        print("start loading frames:", get_now())
         full_frames = []
         while True:
             still_reading, frame = video_stream.read()
@@ -78,8 +61,6 @@ def main():
             if y2 == -1: y2 = frame.shape[0]
             frame = frame[y1:y2, x1:x2]
             full_frames.append(frame)
-
-        print("finish loading frames:", get_now())
 
     print ("[Step 0] Number of frames available for inference: "+str(len(full_frames)))
     # face detection & cropping, cropping the first frame as the style of FFHQ
@@ -105,6 +86,9 @@ def main():
         lm = lm.reshape([len(full_frames), -1, 2])
        
     if not os.path.isfile('temp/'+base_name+'_coeffs.npy') or args.exp_img is not None or args.re_preprocess:
+        net_recon = load_face3d_net(args.face3d_net_path, device)
+        lm3d_std = load_lm3d('checkpoints/BFM')
+
         video_coeffs = []
         for idx in tqdm(range(len(frames_pil)), desc="[Step 2] 3DMM Extraction In Video:"):
             frame = frames_pil[idx]
@@ -136,7 +120,8 @@ def main():
     if args.exp_img is not None and ('.png' in args.exp_img or '.jpg' in args.exp_img):
         print('extract the exp from',args.exp_img)
         exp_pil = Image.open(args.exp_img).convert('RGB')
-
+        lm3d_std = load_lm3d('third_part/face3d/BFM')
+        
         W, H = exp_pil.size
         kp_extractor = KeypointExtractor()
         lm_exp = kp_extractor.extract_keypoint([exp_pil], 'temp/'+base_name+'_temp.txt')[0]
@@ -158,6 +143,9 @@ def main():
     else:
         print('using expression center')
         expression = torch.tensor(loadmat('checkpoints/expression.mat')['expression_center'])[0]
+
+    # load DNet, model(LNet and ENet)
+    D_Net, model = load_model(args, device)
 
     if not os.path.isfile('temp/'+base_name+'_stablized.npy') or args.re_preprocess:
         imgs = []
