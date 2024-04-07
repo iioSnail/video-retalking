@@ -4,6 +4,7 @@ from tqdm import tqdm
 from PIL import Image
 from scipy.io import loadmat
 from datetime import datetime
+import time
 
 sys.path.insert(0, 'third_part')
 sys.path.insert(0, 'third_part/GPEN')
@@ -224,10 +225,10 @@ def main():
         imgs_enhanced.append(pred)
     gen = datagen(imgs_enhanced.copy(), mel_chunks, full_frames, None, (oy1,oy2,ox1,ox2))
 
+    print("[Step 5]Finished", get_now())
+
     frame_h, frame_w = full_frames[0].shape[:-1]
     out = cv2.VideoWriter('temp/{}/result.mp4'.format(args.tmp_dir), cv2.VideoWriter_fourcc(*'mp4v'), fps, (frame_w, frame_h))
-
-    print("[Step 5]Finished", get_now())
 
     print("args.up_face:", args.up_face)
     if args.up_face != 'original':
@@ -236,7 +237,6 @@ def main():
         instance.setup()
 
     print("[Step 6]Start", get_now())
-    kp_extractor = KeypointExtractor()
     for i, (img_batch, mel_batch, frames, coords, img_original, f_frames) in enumerate(tqdm(gen, desc='[Step 6] Lip Synthesis:', total=int(np.ceil(float(len(mel_chunks)) / args.LNet_batch_size)))):
         img_batch = torch.FloatTensor(np.transpose(img_batch, (0, 3, 1, 2))).to(device)
         mel_batch = torch.FloatTensor(np.transpose(mel_batch, (0, 3, 1, 2))).to(device)
@@ -244,7 +244,10 @@ def main():
 
         with torch.no_grad():
             incomplete, reference = torch.split(img_batch, 3, dim=1)
+            time_start = time.time()
             pred, low_res = model(mel_batch, img_batch, reference)
+            duration = time.time() - time_start
+            print("inference time-consuming:", duration)
             pred = torch.clamp(pred, 0, 1)
 
             if args.up_face in ['sad', 'angry', 'surprise']:
